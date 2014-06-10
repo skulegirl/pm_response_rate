@@ -1,0 +1,82 @@
+<?php
+
+/**
+ * @file
+ *
+ * This file contains installation and update hooks for pm_response_rate
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function pm_response_rate_schema() {
+  $schema = array();
+  $schema['pm_response_rate'] = array(
+    'description'       => '{pm_response_rate} holds information about calculated user response rates',
+    'fields'        => array(
+      'uid'    => array(
+        'description'   => 'User ID',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'revisit_time' => array(
+        'description'   => 'Time when grace period expires and rate needs recalculating',
+        'type'          => 'int',
+        'unsigned'      => TRUE,
+        'not null'      => TRUE,
+        'default'       => 0,
+      ),
+      'response_rate' => array(
+        'description'   => 'Response rate as a percentage',
+        'type'          => 'int',
+        'unsigned'      => TRUE,
+        'not null'      => FALSE,
+        'default'       => NULL,
+      ),
+      'response_time' => array(
+        'description'   => 'Average response time indicator (maps to range)',
+        'type'          => 'int',
+        'unsigned'      => TRUE,
+        'not null'      => TRUE,
+        'default'       => 0,
+      ),
+      'messages_used' => array(
+        'description'   => 'Number of messages used in calculation',
+        'type'          => 'int',
+        'unsigned'      => TRUE,
+        'not null'      => TRUE,
+        'default'       => 0,
+      ),
+      // TODO - add ability to override calculated response time for a given period
+    ),
+    'primary key' => array('uid'),
+    'indexes' => array(
+      'updates' => array('revisit_time'),
+    ),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function pm_response_rate_install() {
+  drupal_install_schema('pm_response_rate');
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function pm_response_rate_uninstall() {
+  variable_del('pm_response_rate_days_memory');
+  variable_del('pm_response_rate_ideal_min_messages');
+  variable_del('pm_response_rate_days_extended_memory');
+  variable_del('pm_response_rate_minimum_messages');
+  variable_del('pm_response_rate_grace_period');
+  variable_del('pm_response_rate_calc_interval');
+  variable_del('pm_response_time_algo');
+  drupal_uninstall_schema('pm_response_rate');
+}
+
+

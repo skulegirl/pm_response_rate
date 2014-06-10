@@ -1,0 +1,336 @@
+<?php
+
+define('PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT', 90);
+define('PM_RESPONSE_RATE_IDEAL_MESSAGES_DEFAULT', 5);
+define('PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT', 180);
+define('PM_RESPONSE_RATE_MINIMUM_MESSAGES_DEFAULT', 2);
+define('PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT', 3);
+define('PM_RESPONSE_RATE_CALC_INTERVAL_DEFAULT', 24);
+
+define('PM_RESPONSE_RATE_SECONDS_IN_DAY', 86400);
+
+define('PM_RESPONSE_TIME_ALGO_AVERAGE', 0);
+define('PM_RESPONSE_TIME_ALGO_MEDIAN', 1);
+
+define('PM_RESPONSE_RATE_12_HOURS', 12*60*60);
+define('PM_RESPONSE_RATE_24_HOURS', 24*60*60);
+define('PM_RESPONSE_RATE_48_HOURS', 48*60*60);
+define('PM_RESPONSE_RATE_4_DAYS', 4*24*60*60);
+define('PM_RESPONSE_RATE_1_WEEK', 7*24*60*60);
+define('PM_RESPONSE_RATE_2_WEEKS', 14*24*60*60);
+
+define('PM_RESPONSE_RATE_NOT_DEFINED', 0);
+define('PM_RESPONSE_RATE_LESS_THAN_12_HOURS', 1);
+define('PM_RESPONSE_RATE_LESS_THAN_24_HOURS', 2);
+define('PM_RESPONSE_RATE_LESS_THAN_2_DAYS', 3);
+define('PM_RESPONSE_RATE_LESS_THAN_4_DAYS', 4);
+define('PM_RESPONSE_RATE_LESS_THAN_1_WEEK', 5);
+define('PM_RESPONSE_RATE_LESS_THAN_2_WEEKS', 6);
+define('PM_RESPONSE_RATE_MORE_THAN_2_WEEKS', 7);
+
+/**
+ * Implements hook_perm().
+ */
+function pm_response_rate_perm() {
+  return array('view privatemsg response rate data', 'alter privatemsg response rate data');
+}
+
+/**
+ * Implements hook_menu().
+ */
+function pm_response_rate_menu() {
+  $items['admin/settings/messages/response_rate'] = array(
+    'title'            => 'Response Rate',
+    'description'      => 'Response rate settings',
+    'page callback'    => 'drupal_get_form',
+    'page arguments'   => array('pm_response_rate_admin_settings_form'),
+    'file'             => 'pm_response_rate.admin.inc',
+    'access arguments' => array('administer privatemsg settings'),
+    'type'             => MENU_LOCAL_TASK,
+    'weight'           => 10,
+  );
+  return $items;
+}
+
+/**
+ * Implement hook_views_api()
+ */
+function pm_response_rate_views_api()
+{
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'pm_response_rate') . '/includes',
+  );
+}
+
+
+/* 
+ * Calculate the response rate and time
+ */
+
+function _pm_response_rate_update_user_rate($uid) {
+
+  dd('Running response rate for user' . $uid);
+  $searchtime = time() - variable_get('pm_response_rate_days_memory', 
+    PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
+
+  $count = db_result(db_query(
+    "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+    array($uid, $searchtime, $uid)));
+  dd('Initial count is ' . $count);
+  if ($count < variable_get('pm_response_rate_ideal_min_messages', 
+    PM_RESPONSE_RATE_IDEAL_MESSAGES_DEFAULT))
+  {
+    // then use the extended days memory value
+    $searchtime = time() - variable_get('pm_response_rate_days_extended_memory', 
+      PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
+    $count = db_result(db_query(
+      "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+      array($uid, $searchtime, $uid)));
+    dd('Secondary count is ' . $count);
+  }
+
+  $minimum_messages = variable_get('pm_response_rate_minimum_messages', PM_RESPONSE_RATE_MINIMUM_MESSAGES_DEFAULT);
+
+  if ($count < $minimum_messages)
+  {
+    // then we don't have enough info to calculate a rate, just return.
+    // NOTE: DO NOT go in and NULL out any existing rate - we want to leave it as-is 
+    dd('minimum of '.$minimum_messages.' was not reached');
+    return;
+  }
+
+  $total_incoming_msgs = 0;
+  $total_responses_to_incoming = 0;
+  $first_revisit_time = 0;
+
+  // Get all messages that were the first in a thread and sent to this user that are in the memory window
+  $result = db_query(
+      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+    array($uid, $searchtime, $uid));
+
+  $grace_period = variable_get('pm_response_rate_grace_period', PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT) * PM_RESPONSE_RATE_SECONDS_IN_DAY;
+  
+  while ($message = db_fetch_array($result))
+  {
+    dd($message, 'Message inspected');
+    $total_incoming_msgs++;
+    // note that mid being passed in here is equal to thread_id for the thread, since its the first
+    // message in the thread.
+    $first_response_message = _pm_response_rate_find_response_msg($message['mid'], $uid);
+
+    if ($first_response_message)
+    {
+      dd($first_response_message, 'First response');
+      $total_responses_to_incoming++;
+      $response_times[] = $first_response_message['timestamp'] - $message['timestamp'];
+    }
+    else // no response yet
+    {
+      dd('Could not find response');
+      $gracetime = time() - $grace_period;
+      if ($message['timestamp'] > $gracetime)
+      {
+        dd('Message is in grace period');
+        // then don't count this one in the rate
+        $total_incoming_msgs--;
+        $revisit_time = $message['timestamp'] + $grace_period;
+        if ($first_revisit_time == 0 || $revisit_time < $first_revisit_time)
+        {
+          dd('Updating revisit time to '.$revisit_time);
+          $first_revisit_time = $revisit_time;
+        }
+      }
+    }
+  }
+  if ($total_incoming_msgs  < $minimum_messages)
+  {
+    dd('Number messages after grace period exemption is too small');
+    if ($first_revisit_time != 0)
+    {
+      // Then enough of our messages were in the grace period to not make calculation worthwhile
+      // Don't do the calculation, but put an entry in the DB with the revisit time set and a NULL response
+      // rate
+      $response_time = PM_RESPONSE_RATE_NOT_DEFINED;
+      
+      if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
+      {
+        db_query("UPDATE {pm_response_rate} SET revisit_time='%d', response_rate=NULL, response_time='%d', messages_used='%d' WHERE uid='%d'", $first_revisit_time, $response_time, $total_incoming_msgs, $uid);
+      }
+      else
+      {
+        db_query("INSERT into {pm_response_rate} (uid, revisit_time, response_rate, response_time, messages_used) VALUES ('%d', '%d', NULL, '%d', '%d')", $uid, $first_revisit_time, $response_time, $total_incoming_msgs);
+      }
+    }
+    return;
+  }
+
+  $response_rate = round(($total_responses_to_incoming*100.0)/$total_incoming_msgs);
+  $response_time = _pm_response_rate_calc_response_time($response_times);
+ 
+  if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
+  {
+    db_query("UPDATE {pm_response_rate} SET revisit_time='%d', response_rate='%d', response_time='%d', messages_used='%d' WHERE uid='%d'", $first_revisit_time, $response_rate, $response_time, $total_incoming_msgs, $uid);
+  }
+  else
+  {
+    
+    db_query("INSERT into pm_response_rate (uid, revisit_time, response_rate, response_time, messages_used) VALUES ('%d', '%d', '%d', '%d', '%d')", $uid, $first_revisit_time, $response_rate, $response_time, $total_incoming_msgs);
+  }
+}
+
+/* 
+ * Get data about the first response by the responder_uid in a thread specified by thread_id
+ * If no response is found, return value is FALSE.
+ * Otherwise, it is an array with message mid, author and timestamp
+ */
+
+function _pm_response_rate_find_response_msg($thread_id, $responder_uid)
+{
+  $result = db_query("SELECT m.mid, m.author, m.timestamp FROM pm_index as i JOIN pm_message as m ON i.mid = m.mid WHERE m.author = '%d' and i.thread_id = '%d' ORDER BY m.timestamp ASC LIMIT 1", array($responder_uid, $thread_id));
+
+  return (db_fetch_array($result));
+}
+
+/*
+ * Calculate the response rate based on an array of the response times
+ */
+function _pm_response_rate_calc_response_time($response_times)
+{
+  if (count($response_times) == 0)
+  {
+    return PM_RESPONSE_RATE_NOT_DEFINED;
+  }
+
+  // currently set up to return the median value.
+  // eventually make the method configurable so we can do the average or the median
+  if (variable_get('pm_response_time_algo', PM_RESPONSE_TIME_ALGO_AVERAGE) == PM_RESPONSE_TIME_ALGO_MEDIAN)
+  {
+    rsort($response_times);
+    $middle = round(count($response_times)/2);
+    $time = $response_times[$middle-1];
+  }
+  else // response time algorithm is average
+  {
+    $time = array_sum($response_times)/count($response_times);
+  }
+
+
+
+  if ($time < PM_RESPONSE_RATE_12_HOURS)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_12_HOURS;
+  }
+  else if ($time < PM_RESPONSE_RATE_24_HOURS)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_24_HOURS;
+  }
+  else if ($time < PM_RESPONSE_RATE_48_HOURS)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_2_DAYS;
+  }
+  else if ($time < PM_RESPONSE_RATE_4_DAYS)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_4_DAYS;
+  }
+  else if ($time < PM_RESPONSE_RATE_1_WEEK)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_1_WEEK;
+  }
+  else if ($time < PM_RESPONSE_RATE_2_WEEKS)
+  {
+    return PM_RESPONSE_RATE_LESS_THAN_2_WEEKS;
+  }
+  else
+  {
+    return PM_RESPONSE_RATE_MORE_THAN_2_WEEKS;
+  }
+}
+
+/** 
+ * Implement hook_privatemsg_message_insert 
+ * Called after a message has been saved (i.e. sent)
+ * If this is the first message in a thread, then update the receiver (need to have their revisit time
+ * marked). 
+ * Otherwise, update the sender (it may be a response) 
+ */
+function pm_response_rate_privatemsg_message_insert($message)
+{
+
+  $roles_to_update = variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID));
+  if ($message['thread_id'] != $message['mid']) // not the first message in thread
+  {
+    if (_pm_user_has_role($message['author'], $roles_to_update))
+    {
+      _pm_response_rate_update_user_rate($message['author']->uid);
+    }
+  }
+  else // this is the first message in the thread
+  {
+    foreach ($message['recipients'] as $recipient)
+    {
+      if (_pm_user_has_role($recipient, $roles_to_update))
+      {
+        _pm_response_rate_update_user_rate($recipient->uid);
+      }
+    }
+  }
+}
+
+/**
+ * Implement hook_cron
+ * If it's been {interval} time since we last ran, run update again on all pm_response_rate entries
+ * that have a revisit_time < current time
+ */
+function pm_response_rate_cron()
+{
+  static $last_run = 0;
+  $now = time();
+  $wait_time = variable_get('pm_response_rate_calc_interval', PM_RESPONSE_RATE_CALC_INTERVAL_DEFAULT)*3600;
+  if (($now - last_run) >= $wait_time) 
+  {
+    pm_response_rate_update_flagged_users($now);
+  }
+}
+
+/**
+ * helper function to update the users who's revsit_time has passed
+ */
+function pm_response_rate_update_flagged_users($revisit_before_time)
+{
+  watchdog('pm_response_rate', 'Updating users with revisit time in range');
+  $result = db_query("SELECT uid FROM {pm_response_rate} WHERE revisit_time > 0 AND revisit_time < %d", 
+    $revisit_before_time);
+  while ($uid = db_result($result))
+  {
+    _pm_response_rate_update_user_rate($uid);
+  }
+}
+
+/**
+ * Regenerate all pm response rate data
+ */
+function pm_response_rate_regenerate_data() 
+{
+  $roles = variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID));
+  $result = db_query("SELECT DISTINCT u.uid FROM users as u JOIN users_roles as ur ON u.uid = ur.uid WHERE ur.rid IN (" .  db_placeholders($roles, 'int') . ")", $roles);
+
+  while ($uid = db_result($result))
+  {
+    _pm_response_rate_update_user_rate($uid);    
+  }
+}
+
+/* 
+ * Helper function - copy of user_has_role from 
+ * http://drupalcontrib.org/api/drupal/contributions!helpers!helpers.module/function/user_has_role/6
+ */
+function _pm_user_has_role($user, $roles) 
+{
+  foreach ($roles as $rid) {
+    if (in_array($rid, array_keys($user->roles))) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
