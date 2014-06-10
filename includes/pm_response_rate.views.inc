@@ -90,6 +90,20 @@ function pm_response_rate_views_data()
     ),
   );
 
+  $data['pm_response_rate']['messages_used'] = array(
+    'title' => t('Messages Used'),
+    'help' => t('The number of messages used in calculations'),
+    'field' => array(
+      'handler' => 'views_handler_field_numeric',
+    ),
+    'filter' => array(
+      'handler' => 'views_handler_filter_numeric',
+    ),
+    'sort' => array(
+      'handler' => 'views_handler_sort',
+    ),
+  );
+
   // Add relationship to user table
   $data['pm_response_rate']['uid'] = array(
     'title' => t('User'),
