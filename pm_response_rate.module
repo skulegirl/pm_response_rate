@@ -70,14 +70,12 @@ function pm_response_rate_views_api()
 
 function _pm_response_rate_update_user_rate($uid) {
 
-  dd('Running response rate for user' . $uid);
   $searchtime = time() - variable_get('pm_response_rate_days_memory', 
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
   $count = db_result(db_query(
     "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0", 
     array($uid, $searchtime, $uid)));
-  dd('Initial count is ' . $count);
   if ($count < variable_get('pm_response_rate_ideal_min_messages', 
     PM_RESPONSE_RATE_IDEAL_MESSAGES_DEFAULT))
   {
@@ -87,7 +85,6 @@ function _pm_response_rate_update_user_rate($uid) {
     $count = db_result(db_query(
       "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0", 
       array($uid, $searchtime, $uid)));
-    dd('Secondary count is ' . $count);
   }
 
   $minimum_messages = variable_get('pm_response_rate_minimum_messages', PM_RESPONSE_RATE_MINIMUM_MESSAGES_DEFAULT);
@@ -96,7 +93,6 @@ function _pm_response_rate_update_user_rate($uid) {
   {
     // then we don't have enough info to calculate a rate, just return.
     // NOTE: DO NOT go in and NULL out any existing rate - we want to leave it as-is 
-    dd('minimum of '.$minimum_messages.' was not reached');
     return;
   }
 
@@ -113,7 +109,6 @@ function _pm_response_rate_update_user_rate($uid) {
   
   while ($message = db_fetch_array($result))
   {
-    dd($message, 'Message inspected');
     $total_incoming_msgs++;
     // note that mid being passed in here is equal to thread_id for the thread, since its the first
     // message in the thread.
@@ -121,23 +116,19 @@ function _pm_response_rate_update_user_rate($uid) {
 
     if ($first_response_message)
     {
-      dd($first_response_message, 'First response');
       $total_responses_to_incoming++;
       $response_times[] = $first_response_message['timestamp'] - $message['timestamp'];
     }
     else // no response yet
     {
-      dd('Could not find response');
       $gracetime = time() - $grace_period;
       if ($message['timestamp'] > $gracetime)
       {
-        dd('Message is in grace period');
         // then don't count this one in the rate
         $total_incoming_msgs--;
         $revisit_time = $message['timestamp'] + $grace_period;
         if ($first_revisit_time == 0 || $revisit_time < $first_revisit_time)
         {
-          dd('Updating revisit time to '.$revisit_time);
           $first_revisit_time = $revisit_time;
         }
       }
@@ -145,7 +136,6 @@ function _pm_response_rate_update_user_rate($uid) {
   }
   if ($total_incoming_msgs  < $minimum_messages)
   {
-    dd('Number messages after grace period exemption is too small');
     if ($first_revisit_time != 0)
     {
       // Then enough of our messages were in the grace period to not make calculation worthwhile
@@ -354,4 +344,74 @@ function pm_response_rate_form_alter(&$form, $form_state, $form_id)
 function _pm_response_rate_recalc_user_submit($form, &$form_state) {
   _pm_response_rate_update_user_rate($form['#uid']);
   drupal_set_message(t('PM Response rate has been regenerated'));
+}
+
+/* 
+ * Implement hook_privatemsg_thread_operations
+ */
+function pm_response_rate_privatemsg_thread_operations() {
+  $operations = array();
+  if (user_access('alter privatemsg response rate data'))
+  {
+    $operations['Flag ignore'] = array(
+        'label' => t('Flag ignore in response rate'),
+        'callback' => 'pm_response_rate_flag_ignore',
+        'callback arguments' => array('ignore' => 1),
+        'undo callback' => 'pm_response_rate_flag_ignore',
+        'undo callback arguments' => array('ignore' => 0),
+      );
+    $operations['Unflag ignore'] = array(
+        'label' => t('Unflag ignore in response rate'),
+        'callback' => 'pm_response_rate_flag_ignore',
+        'callback arguments' => array('ignore' => 0),
+        'undo callback' => 'pm_response_rate_flag_ignore',
+        'undo callback arguments' => array('ignore' => 1),
+      );
+  }
+  return $operations;
+}
+
+/* 
+ * Flag a thread to be ignored in calculation of response rates
+ *
+ * @param $threads
+ *   Array with thread id's or a single thread id.
+ * @param $ignore
+ *   Value to set the ignore flag to 
+ * @param $account
+ *   User object for which the threads should be altered, defaults to the
+ *   current user.
+ */
+function pm_response_rate_flag_ignore($threads, $ignore, $account = NULL) {
+  if (!is_array($threads)) {
+    $threads = array($threads);
+  }
+  if (empty($account)) {
+    global $user;
+    $account = drupal_clone($user);
+  }
+
+  foreach ($threads as $thread_id) {
+    if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate_flags} WHERE thread_id = '%d'", $thread_id)))
+    {
+      db_query("UPDATE {pm_response_rate_flags} SET ignore_flag='%d' WHERE thread_id='%d'", $ignore, $thread_id);
+    }
+    else
+    {
+      db_query("INSERT into {pm_response_rate_flags} (thread_id, ignore_flag, request_ignore) VALUES ('%d', '%d', 0)", $thread_id, $ignore);
+    }
+    global $user;
+    $thread_account = drupal_clone($user);
+    $participants = _privatemsg_load_thread_participants($thread_id, $thread_account);
+    foreach ($participants as $participant) {
+      _pm_response_rate_update_user_rate($participant->recipient);
+    }
+  }
+
+  if ($ignore != 0) {
+    drupal_set_message(format_plural(count($threads), 'Flagged 1 thread to be ignored.', 'Flagged @count threads to be ignored.'));
+  }
+  else {
+    drupal_set_message(format_plural(count($threads), 'Unflagged 1 thread to be ignored.', 'Unflagged @count threads to be ignored.'));
+  }
 }
