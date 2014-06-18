@@ -75,7 +75,7 @@ function _pm_response_rate_update_user_rate($uid) {
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
   $count = db_result(db_query(
-    "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+    "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0", 
     array($uid, $searchtime, $uid)));
   dd('Initial count is ' . $count);
   if ($count < variable_get('pm_response_rate_ideal_min_messages', 
@@ -85,7 +85,7 @@ function _pm_response_rate_update_user_rate($uid) {
     $searchtime = time() - variable_get('pm_response_rate_days_extended_memory', 
       PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
     $count = db_result(db_query(
-      "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+      "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0", 
       array($uid, $searchtime, $uid)));
     dd('Secondary count is ' . $count);
   }
@@ -106,7 +106,7 @@ function _pm_response_rate_update_user_rate($uid) {
 
   // Get all messages that were the first in a thread and sent to this user that are in the memory window
   $result = db_query(
-      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d'", 
+      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0", 
     array($uid, $searchtime, $uid));
 
   $grace_period = variable_get('pm_response_rate_grace_period', PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT) * PM_RESPONSE_RATE_SECONDS_IN_DAY;
@@ -333,4 +333,25 @@ function _pm_user_has_role($user, $roles)
     }
   }
   return FALSE;
+}
+
+/* 
+ * Implement hook_form_alter()
+ */
+function pm_response_rate_form_alter(&$form, $form_state, $form_id)
+{
+  if ($form_id == 'user_profile_form')
+  {
+    $form['privatemsg']['pm_response_rate_recalc'] = array(
+      '#type' => 'submit',
+      '#value' => t('Regenerate Response Rate'),
+      '#prefix' => t('If required, you can manually regenerate the response rate for this user by clicking here'),
+      '#submit' => array('_pm_response_rate_recalc_user_submit'),
+    );
+  }
+}
+
+function _pm_response_rate_recalc_user_submit($form, &$form_state) {
+  _pm_response_rate_update_user_rate($form['#uid']);
+  drupal_set_message(t('PM Response rate has been regenerated'));
 }

@@ -55,6 +55,30 @@ function pm_response_rate_schema() {
       'updates' => array('revisit_time'),
     ),
   );
+  $schema['pm_response_rate_flags'] = array(
+    'description'       => '{pm_response_rate_msgs} holds information about individual messages to use when calculating response rates',
+    'fields'        => array(
+      'thread_id'    => array(
+        'description'   => 'Thread ID',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'ignore_flag' => array(
+        'description'   => 'Flag indicating this thread should be ignored in calculations',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'request_ignore' => array(
+        'description'   => 'Flag indicating a user has requested that this thread be ignored in calculations',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+    ),
+    'primary key' => array('thread_id'),
+  );
   return $schema;
 }
 
@@ -79,4 +103,37 @@ function pm_response_rate_uninstall() {
   drupal_uninstall_schema('pm_response_rate');
 }
 
+/**
+ * Add pm_response_rate_flags table to hold flags indicating if message threads should be ignored in calculation
+ */
+
+function pm_response_rate_update_6101() {
+  $schema['pm_response_rate_flags'] = array(
+    'description'       => '{pm_response_rate_msgs} holds information about individual messages to use when calculating response rates',
+    'fields'        => array(
+      'thread_id'    => array(
+        'description'   => 'Thread ID',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'ignore_flag' => array(
+        'description'   => 'Flag indicating this thread should be ignored in calculations',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'request_ignore' => array(
+        'description'   => 'Flag indicating a user has requested that this thread be ignored in calculations',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+    ),
+    'primary key' => array('thread_id'),
+  );
+  $ret = array();
+  db_create_table($ret, 'pm_response_rate_flags', $schema['pm_response_rate_flags']);
+  return $ret;
+}
 
