@@ -71,11 +71,20 @@ function pm_response_rate_admin_settings_form() {
     '#weight' => 30,
   );
 
-  $form['pm_response_rate']['pm_response_rate_calc_interval'] = array(
+  $form['pm_response_rate']['pm_response_rate_partial_calc_interval'] = array(
     '#type' => 'textfield',
-    '#title' => t("Interval, in hours, to wait before re-calculating response rates"),
-    '#description' => t("Response rates will be updated in real-time as messages are responded to, however messages that are not responded to need to be handled asynchronously. The time interval set here will be used to determine if response rates of users with unanswered messages should be recalculated or not"),
-    '#default_value' => variable_get('pm_response_rate_calc_interval', PM_RESPONSE_RATE_CALC_INTERVAL_DEFAULT),
+    '#title' => t("Interval, in hours, to wait before paritally re-calculating response rates"),
+    '#description' => t("Response rates will be updated in real-time as messages are responded to, however messages that are not responded to need to be handled asynchronously. The time interval set here will be used to determine if response rates of users with unanswered messages that have just passed the grace period should be recalculated or not"),
+    '#default_value' => variable_get('pm_response_rate_partial_calc_interval', PM_RESPONSE_RATE_PARTIAL_CALC_INTERVAL_DEFAULT),
+    '#size' => '3',
+    '#weight' => 35,
+  );
+
+  $form['pm_response_rate']['pm_response_rate_full_calc_interval'] = array(
+    '#type' => 'textfield',
+    '#title' => t("Interval, in days, to wait before fully re-calculating response rates"),
+    '#description' => t("As messages age out, response rates should be updated accordingly. This time interval is used to determine if a full recalculation of all response rates should occur."),
+    '#default_value' => variable_get('pm_response_rate_full_calc_interval', PM_RESPONSE_RATE_FULL_CALC_INTERVAL_DEFAULT),
     '#size' => '3',
     '#weight' => 35,
   );

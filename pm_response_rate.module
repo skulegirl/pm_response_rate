@@ -5,7 +5,8 @@ define('PM_RESPONSE_RATE_IDEAL_MESSAGES_DEFAULT', 5);
 define('PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT', 180);
 define('PM_RESPONSE_RATE_MINIMUM_MESSAGES_DEFAULT', 2);
 define('PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT', 3);
-define('PM_RESPONSE_RATE_CALC_INTERVAL_DEFAULT', 24);
+define('PM_RESPONSE_RATE_PARTIAL_CALC_INTERVAL_DEFAULT', 24);
+define('PM_RESPONSE_RATE_FULL_CALC_INTERVAL_DEFAULT', 7);
 
 define('PM_RESPONSE_RATE_SECONDS_IN_DAY', 86400);
 
@@ -274,12 +275,24 @@ function pm_response_rate_privatemsg_message_insert($message)
  */
 function pm_response_rate_cron()
 {
-  static $last_run = 0;
+  static $last_partial_run = 0;
+  static $last_full_run = 0;
   $now = time();
-  $wait_time = variable_get('pm_response_rate_calc_interval', PM_RESPONSE_RATE_CALC_INTERVAL_DEFAULT)*3600;
-  if (($now - last_run) >= $wait_time) 
+  $full_wait_time = variable_get('pm_response_rate_full_calc_interval', PM_RESPONSE_RATE_FULL_CALC_INTERVAL_DEFAULT)*24*3600;
+  if (($now - $last_full_run) >= $full_wait_time)
   {
-    pm_response_rate_update_flagged_users($now);
+    pm_response_rate_regenerate_data();
+    $last_full_run = $now;
+    $last_partial_run = $now;
+  }
+  else
+  {
+    $partial_wait_time = variable_get('pm_response_rate_partial_calc_interval', PM_RESPONSE_RATE_PARTIAL_CALC_INTERVAL_DEFAULT)*3600;
+    if (($now - $last_partial_run) >= $partial_wait_time) 
+    {
+      pm_response_rate_update_flagged_users($now);
+      $last_partial_run = $now;
+    }
   }
 }
 
@@ -302,6 +315,7 @@ function pm_response_rate_update_flagged_users($revisit_before_time)
  */
 function pm_response_rate_regenerate_data() 
 {
+  watchdog('pm_response_rate', 'Regenerating all response rate data');
   $roles = variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID));
   $result = db_query("SELECT DISTINCT u.uid FROM users as u JOIN users_roles as ur ON u.uid = ur.uid WHERE ur.rid IN (" .  db_placeholders($roles, 'int') . ")", $roles);
 
@@ -351,7 +365,7 @@ function _pm_response_rate_recalc_user_submit($form, &$form_state) {
  */
 function pm_response_rate_privatemsg_thread_operations() {
   $operations = array();
-  if (user_access('alter privatemsg response rate data'))
+  if (privatemsg_user_access('alter privatemsg response rate data'))
   {
     $operations['Flag ignore'] = array(
         'label' => t('Flag ignore in response rate'),
@@ -414,4 +428,86 @@ function pm_response_rate_flag_ignore($threads, $ignore, $account = NULL) {
   else {
     drupal_set_message(format_plural(count($threads), 'Unflagged 1 thread to be ignored.', 'Unflagged @count threads to be ignored.'));
   }
+}
+
+/**
+ * Implements hook_privatemsg_header_info().
+ */
+function pm_response_rate_privatemsg_header_info() {
+  return array(
+    'ignored' => array(
+      'data'    => t('Ignored in RR?'),
+      'class'   => 'privatemsg-header-ignored',
+      '#enabled' => TRUE,
+      '#locked'  => TRUE,
+      '#weight'  => -20,
+      '#access'  => privatemsg_user_access('alter privatemsg response rate data')
+    ),
+  );
+}
+
+/**
+ * Default theme pattern function to display tags.
+ *
+ * @see theme_privatemsg_list_field()
+ */
+function phptemplate_privatemsg_list_field__ignored($thread) {
+    return array(
+      'data' => (isset($thread['flags']) && $thread['flags']['incoming_message']) ? ($thread['flags']['ignore_flag'] ? 'Yes' : 'No') : 'N/A',
+      'class' => 'pm-response-rate-ignore-flag',
+    );
+}
+/**
+ * Add the ignored flag values to the message listing
+ */
+function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
+  if (privatemsg_user_access('alter privatemsg response rate data'))
+  {
+    // Load thread ids of current list
+    $threads = array_keys($form['#data']);
+
+    foreach ($threads as $thread)
+    {
+      // Load the first message and see who sent it
+      $message = privatemsg_message_load($thread, $form['account']['#value']);
+      if ($message['author']->uid == $form['account']['#value']->uid)
+      {
+        $form['#data'][$thread]['flags']['incoming_message'] = 0;
+      }
+      else
+      {
+        $form['#data'][$thread]['flags']['incoming_message'] = 1;
+      }
+    }
+
+    // Fetch the pm_response_rate flags for the threads
+    $query = _privatemsg_assemble_query(array('flags', 'pm_response_rate'), $threads);
+
+    // Add them to #data
+    $result = db_query($query['query']);
+    while ($flags = db_fetch_array($result)) {
+      dd($flags, 'flags');
+      $form['#data'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
+      $form['#data'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
+    }
+  }
+}
+
+/**
+ * Query definition to fetch flags.
+ *
+ * @param $fragments
+ *   Query fragments array.
+ * @param $threads
+ *   Array of thread ids, defaults to all threads of a user.
+ */
+function pm_response_rate_sql_flags(&$fragments, $threads) {
+  $fragments['primary_table'] = '{pm_response_rate_flags} t';
+  $fragments['select'][] = 't.ignore_flag';
+  $fragments['select'][] = 't.request_ignore';
+  $fragments['select'][] = 't.thread_id';
+
+  // If the flag list needs to be for specific threads.
+  $fragments['where'][] = 't.thread_id IN (' . db_placeholders($threads) . ')';
+  $fragments['query_args']['where'] += $threads;
 }
