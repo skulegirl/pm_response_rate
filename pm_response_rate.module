@@ -278,6 +278,7 @@ function pm_response_rate_cron()
   static $last_partial_run = 0;
   static $last_full_run = 0;
   $now = time();
+  $last_full_run = $now; // disable full run for now - hangs cron
   $full_wait_time = variable_get('pm_response_rate_full_calc_interval', PM_RESPONSE_RATE_FULL_CALC_INTERVAL_DEFAULT)*24*3600;
   if (($now - $last_full_run) >= $full_wait_time)
   {
@@ -321,8 +322,9 @@ function pm_response_rate_regenerate_data()
 
   while ($uid = db_result($result))
   {
-    _pm_response_rate_update_user_rate($uid);    
+    _pm_response_rate_update_user_rate($uid);
   }
+  watchdog('pm_response_rate', 'Done regenerating response rate data');
 }
 
 /* 
