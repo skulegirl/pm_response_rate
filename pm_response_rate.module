@@ -362,7 +362,7 @@ function _pm_user_has_role($user, $roles)
  */
 function pm_response_rate_form_alter(&$form, $form_state, $form_id)
 {
-  if ($form_id == 'user_profile_form')
+  if ($form_id == 'user_profile_form' && privatemsg_user_access('alter privatemsg response rate data'))
   {
     $form['privatemsg']['pm_response_rate_recalc'] = array(
       '#type' => 'submit',
