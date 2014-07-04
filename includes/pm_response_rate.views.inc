@@ -115,7 +115,6 @@ function pm_response_rate_views_data()
       'handler' => 'views_handler_relationship',
     ),
   );
-  dd($data, 'pm_response_rate_views_data');
   return $data;
 }
 

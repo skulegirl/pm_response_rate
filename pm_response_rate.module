@@ -132,10 +132,10 @@ function _pm_response_rate_update_user_rate($uid) {
       }
       else // no response yet
       {
-      	//dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
         $gracetime = time() - $grace_period;
         if ($message['timestamp'] > $gracetime)
         {
+      	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
           // then don't count this one in the rate
           $total_incoming_msgs--;
           $revisit_time = $message['timestamp'] + $grace_period;
@@ -146,7 +146,7 @@ function _pm_response_rate_update_user_rate($uid) {
         }
         else
         {
-        	//dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
+	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
         }
       }
     }
