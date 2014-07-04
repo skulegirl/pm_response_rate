@@ -76,6 +76,12 @@ function pm_response_rate_schema() {
         'not null'      => TRUE,
         'unsigned'      => TRUE,
       ),
+      'mark_answered' => array(
+        'description'   => 'Flag indicating this message should be considered answered',
+        'type'          => 'int',
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ), 
     ),
     'primary key' => array('thread_id'),
   );
@@ -137,3 +143,16 @@ function pm_response_rate_update_6101() {
   return $ret;
 }
 
+/** 
+ * Add the mark_answered column to the pm_response_rate_flags table 
+ */
+function pm_response_rate_update_6102() {
+  $ret = array();
+  db_add_field($ret, 'pm_response_rate_flags', 'mark_answered', array(
+      'description'   => 'Flag indicating this message should be considered answered',
+      'type'          => 'int',
+      'not null'      => TRUE,
+      'unsigned'      => TRUE,
+    ));
+  return $ret;
+}
