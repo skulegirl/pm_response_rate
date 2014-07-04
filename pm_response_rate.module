@@ -70,7 +70,7 @@ function pm_response_rate_views_api()
  */
 
 function _pm_response_rate_update_user_rate($uid) {
-
+  //dd('Calculating response rate for user ' . $uid);
   $searchtime = time() - variable_get('pm_response_rate_days_memory', 
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
@@ -96,7 +96,7 @@ function _pm_response_rate_update_user_rate($uid) {
     // NOTE: DO NOT go in and NULL out any existing rate - we want to leave it as-is 
     return;
   }
-
+  //dd('Using ' . $count . ' messages for response rate calculation');
   $total_incoming_msgs = 0;
   $total_responses_to_incoming = 0;
   $first_revisit_time = 0;
@@ -117,6 +117,7 @@ function _pm_response_rate_update_user_rate($uid) {
 
     if ($first_response_message)
     {
+      //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been responded to');
       $total_responses_to_incoming++;
       $response_times[] = $first_response_message['timestamp'] - $message['timestamp'];
     }
@@ -125,6 +126,7 @@ function _pm_response_rate_update_user_rate($uid) {
       $gracetime = time() - $grace_period;
       if ($message['timestamp'] > $gracetime)
       {
+      	//dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
         // then don't count this one in the rate
         $total_incoming_msgs--;
         $revisit_time = $message['timestamp'] + $grace_period;
@@ -132,6 +134,10 @@ function _pm_response_rate_update_user_rate($uid) {
         {
           $first_revisit_time = $revisit_time;
         }
+      }
+      else
+      {
+      	//dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
       }
     }
   }
@@ -488,7 +494,6 @@ function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
     // Add them to #data
     $result = db_query($query['query']);
     while ($flags = db_fetch_array($result)) {
-      dd($flags, 'flags');
       $form['#data'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
       $form['#data'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
     }
