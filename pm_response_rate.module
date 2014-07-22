@@ -530,6 +530,14 @@ function pm_response_rate_privatemsg_header_info() {
       '#weight'  => -20,
       '#access'  => privatemsg_user_access('alter privatemsg response rate data')
     ),
+    'deleted' => array(
+      'data' => t('Deleted'),
+      'class' => 'privatemsg-header-deleted',
+      '#enabled' => TRUE,
+      '#locked' => TRUE,
+      '#weight' => 100,
+      '#access' => privatemsg_user_access('read all private messages')
+    ),
   );
 }
 
@@ -564,6 +572,19 @@ function phptemplate_privatemsg_list_field__answered($thread) {
     return array(
       'data' => $data,
       'class' => 'pm-response-rate-answered-flag',
+    );
+}
+
+/**
+ * Default theme pattern function to display tags.
+ *
+ * @see theme_privatemsg_list_field()
+ */
+function phptemplate_privatemsg_list_field__deleted($thread) {
+  dd($thread, 'deleted thread');
+    return array(
+      'data' => $thread['deleted'] ? format_date($thread['deleted'], 'small') : 'No',
+      'class' => 'pm-response-rate-deleted',
     );
 }
 /**
@@ -620,6 +641,24 @@ function pm_response_rate_sql_flags(&$fragments, $threads) {
   // If the flag list needs to be for specific threads.
   $fragments['where'][] = 't.thread_id IN (' . db_placeholders($threads) . ')';
   $fragments['query_args']['where'] += $threads;
+}
+
+/**
+ * Implement hook_privatemsg_sql_list_alter
+ * If we've got permission to see all messages, then see the deleted ones too
+ */
+function pm_response_rate_privatemsg_sql_list_alter(&$fragments, $account, $argument) {
+  if ($argument == 'list' && privatemsg_user_access('read all private messages'))
+  {
+    foreach ($fragments['where'] as $index => $whereclause)
+    {
+      if (strpos($whereclause, 'pmi.deleted = 0') === 0)
+      {
+        unset($fragments['where'][$index]);
+      }
+    }
+    $fragments['select'][] = 'pmi.deleted';
+  }
 }
 
 function _pm_response_rate_marked_as_responded($thread_id)
