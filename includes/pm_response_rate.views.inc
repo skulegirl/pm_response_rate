@@ -117,18 +117,3 @@ function pm_response_rate_views_data()
   );
   return $data;
 }
-
-function pm_response_rate_views_handlers() 
-{
-  return array(
-    'info' => array(
-      'path' => drupal_get_path('module', 'pm_response_rate') . '/includes',
-    ),
-    'handlers' => array(
-      // field handlers
-      'views_handler_field_response_time_text' => array(
-        'parent' => 'views_handler_field',
-      ),
-    ),
-  );
-}

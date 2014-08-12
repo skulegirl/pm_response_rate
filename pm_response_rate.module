@@ -40,7 +40,7 @@ function pm_response_rate_perm() {
  * Implements hook_menu().
  */
 function pm_response_rate_menu() {
-  $items['admin/settings/messages/response_rate'] = array(
+  $items['admin/config/messaging/privatemsg/response_rate'] = array(
     'title'            => 'Response Rate',
     'description'      => 'Response rate settings',
     'page callback'    => 'drupal_get_form',
@@ -70,22 +70,25 @@ function pm_response_rate_views_api()
  */
 
 function _pm_response_rate_update_user_rate($uid) {
-  //dd('Calculating response rate for user ' . $uid);
+  dd('Calculating response rate for user ' . $uid);
   $searchtime = time() - variable_get('pm_response_rate_days_memory', 
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
-  $count = db_result(db_query(
-    "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0)", 
-    array($uid, $searchtime, $uid)));
+  $result = db_query(
+      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0)", 
+    array('uid' => $uid, 'searchtime' => $searchtime));
+  
+  $count = $result->rowCount();
   if ($count < variable_get('pm_response_rate_ideal_min_messages', 
     PM_RESPONSE_RATE_IDEAL_MESSAGES_DEFAULT))
   {
     // then use the extended days memory value
     $searchtime = time() - variable_get('pm_response_rate_days_extended_memory', 
       PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
-    $count = db_result(db_query(
-      "SELECT COUNT(*) FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0)", 
-      array($uid, $searchtime, $uid)));
+    $result = db_query(
+        "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0)", 
+      array('uid' => $uid, 'searchtime' => $searchtime));
+    $count = $result->rowCount();
   }
 
   $minimum_messages = variable_get('pm_response_rate_minimum_messages', PM_RESPONSE_RATE_MINIMUM_MESSAGES_DEFAULT);
@@ -96,26 +99,23 @@ function _pm_response_rate_update_user_rate($uid) {
     // NOTE: DO NOT go in and NULL out any existing rate - we want to leave it as-is 
     return;
   }
-  //dd('Using ' . $count . ' messages for response rate calculation');
+  dd('Using ' . $count . ' messages for response rate calculation');
   $total_incoming_msgs = 0;
   $total_responses_to_incoming = 0;
   $first_revisit_time = 0;
 
   // Get all messages that were the first in a thread and sent to this user that are in the memory window
-  $result = db_query(
-      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = '%d' AND m.timestamp >= '%d' AND m.author <> '%d' AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0)", 
-    array($uid, $searchtime, $uid));
 
   $grace_period = variable_get('pm_response_rate_grace_period', PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT) * PM_RESPONSE_RATE_SECONDS_IN_DAY;
   
-  while ($message = db_fetch_array($result))
+  while ($message = $result->fetchAssoc())
   {
     $total_incoming_msgs++;
     // note that mid being passed in here is equal to thread_id for the thread, since its the first
     // message in the thread.
     if (_pm_response_rate_marked_as_responded($message['mid']))
     {
-      //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been responded to');
+      dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been responded to');
       $total_responses_to_incoming++;
     }
     else
@@ -128,14 +128,14 @@ function _pm_response_rate_update_user_rate($uid) {
         $response_times[] = $first_response_message['timestamp'] - $message['timestamp'];
         // Eventually put this in the flag table, along with the calculated
         // response time, so that we don't have to do the calculation every time
-      //  pm_response_rate_flag_answered($message['mid'], 1);
+        //  pm_response_rate_flag_answered($message['mid'], 1);
       }
       else // no response yet
       {
         $gracetime = time() - $grace_period;
         if ($message['timestamp'] > $gracetime)
         {
-      	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
+      	  dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
           // then don't count this one in the rate
           $total_incoming_msgs--;
           $revisit_time = $message['timestamp'] + $grace_period;
@@ -146,44 +146,38 @@ function _pm_response_rate_update_user_rate($uid) {
         }
         else
         {
-	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
+	  dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
         }
       }
     }
   }
+
   if ($total_incoming_msgs  < $minimum_messages)
   {
-    if ($first_revisit_time != 0)
+    if ($first_revisit_time == 0)
     {
-      // Then enough of our messages were in the grace period to not make calculation worthwhile
-      // Don't do the calculation, but put an entry in the DB with the revisit time set and a NULL response
-      // rate
-      $response_time = PM_RESPONSE_RATE_NOT_DEFINED;
-      
-      if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
-      {
-        db_query("UPDATE {pm_response_rate} SET revisit_time='%d', response_rate=NULL, response_time='%d', messages_used='%d' WHERE uid='%d'", $first_revisit_time, $response_time, $total_incoming_msgs, $uid);
-      }
-      else
-      {
-        db_query("INSERT into {pm_response_rate} (uid, revisit_time, response_rate, response_time, messages_used) VALUES ('%d', '%d', NULL, '%d', '%d')", $uid, $first_revisit_time, $response_time, $total_incoming_msgs);
-      }
+      return;
     }
-    return;
-  }
-
-  $response_rate = round(($total_responses_to_incoming*100.0)/$total_incoming_msgs);
-  $response_time = _pm_response_rate_calc_response_time($response_times);
- 
-  if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
-  {
-    db_query("UPDATE {pm_response_rate} SET revisit_time='%d', response_rate='%d', response_time='%d', messages_used='%d' WHERE uid='%d'", $first_revisit_time, $response_rate, $response_time, $total_incoming_msgs, $uid);
+    // Otherwise, enough of our messages were in the grace period to not make calculation worthwhile
+    // Don't do the calculation, but put an entry in the DB with the revisit time set and a NULL response rate
+    $response_time = PM_RESPONSE_RATE_NOT_DEFINED;
+    $response_rate = NULL;
   }
   else
   {
-    
-    db_query("INSERT into pm_response_rate (uid, revisit_time, response_rate, response_time, messages_used) VALUES ('%d', '%d', '%d', '%d', '%d')", $uid, $first_revisit_time, $response_rate, $response_time, $total_incoming_msgs);
+    $response_rate = round(($total_responses_to_incoming*100.0)/$total_incoming_msgs);
+    $response_time = _pm_response_rate_calc_response_time($response_times);
   }
+
+  db_merge('pm_response_rate')
+    ->key(array('uid' => $uid))
+    ->fields(
+      array('revisit_time' => $first_revisit_time, 
+            'response_rate' => $response_rate,
+            'response_time' => $response_time, 
+            'messages_used' => $total_incoming_msgs, 
+     ))
+    ->execute(); 
 }
 
 /* 
@@ -194,9 +188,11 @@ function _pm_response_rate_update_user_rate($uid) {
 
 function _pm_response_rate_find_response_msg($thread_id, $responder_uid)
 {
-  $result = db_query("SELECT m.mid, m.author, m.timestamp FROM pm_index as i JOIN pm_message as m ON i.mid = m.mid WHERE m.author = '%d' and i.thread_id = '%d' ORDER BY m.timestamp ASC LIMIT 1", array($responder_uid, $thread_id));
+  $result = db_query_range("SELECT m.mid, m.author, m.timestamp FROM pm_index as i JOIN pm_message as m ON i.mid = m.mid WHERE m.author = :uid and i.thread_id = :tid ORDER BY m.timestamp ASC", 0, 1,
+    array(':uid' => $responder_uid, 
+          ':tid' => $thread_id));
 
-  return (db_fetch_array($result));
+  return $result->fetchAssoc();
 }
 
 /*
@@ -319,11 +315,11 @@ function pm_response_rate_cron()
 function pm_response_rate_update_flagged_users($revisit_before_time)
 {
   watchdog('pm_response_rate', 'Updating users with revisit time in range');
-  $result = db_query("SELECT uid FROM {pm_response_rate} WHERE revisit_time > 0 AND revisit_time < %d", 
-    $revisit_before_time);
-  while ($uid = db_result($result))
+  $result = db_query("SELECT uid FROM {pm_response_rate} WHERE revisit_time > 0 AND revisit_time < :revisit_before_time", 
+    array(':revisit_before_time' => $revisit_before_time));
+  foreach ($result as $record)
   {
-    _pm_response_rate_update_user_rate($uid);
+    _pm_response_rate_update_user_rate($record->uid);
   }
 }
 
@@ -333,13 +329,21 @@ function pm_response_rate_update_flagged_users($revisit_before_time)
 function pm_response_rate_regenerate_data() 
 {
   watchdog('pm_response_rate', 'Regenerating all response rate data');
-  $roles = variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID));
-  $result = db_query("SELECT DISTINCT u.uid FROM users as u JOIN users_roles as ur ON u.uid = ur.uid WHERE ur.rid IN (" .  db_placeholders($roles, 'int') . ")", $roles);
+  $roles = array_filter(variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID)));
+  $query = db_select('users', 'u')
+   ->distinct();
+  $query->join('users_roles', 'ur', 'u.uid = ur.uid');
+  $query
+   ->fields('u',array('uid'))
+   ->condition('ur.rid', $roles, 'IN');
 
-  while ($uid = db_result($result))
+  $result = $query->execute();
+
+  foreach ($result as $record)
   {
-    _pm_response_rate_update_user_rate($uid);
+    _pm_response_rate_update_user_rate($record->uid);
   }
+
   watchdog('pm_response_rate', 'Done regenerating response rate data');
 }
 
@@ -440,14 +444,11 @@ function pm_response_rate_flag_ignore($threads, $ignore, $account = NULL) {
   }
 
   foreach ($threads as $thread_id) {
-    if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate_flags} WHERE thread_id = '%d'", $thread_id)))
-    {
-      db_query("UPDATE {pm_response_rate_flags} SET ignore_flag='%d' WHERE thread_id='%d'", $ignore, $thread_id);
-    }
-    else
-    {
-      db_query("INSERT into {pm_response_rate_flags} (thread_id, ignore_flag) VALUES ('%d', '%d')", $thread_id, $ignore);
-    }
+    db_merge('pm_response_rate_flags')
+      ->key(array('thread_id' => $thread_id))
+      ->fields(array('ignore_flag' => $ignore))
+      ->execute(); 
+
     global $user;
     $thread_account = drupal_clone($user);
     $participants = _privatemsg_load_thread_participants($thread_id, $thread_account);
@@ -485,14 +486,11 @@ function pm_response_rate_flag_answered($threads, $answered, $account = NULL) {
   }
 
   foreach ($threads as $thread_id) {
-    if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate_flags} WHERE thread_id = '%d'", $thread_id)))
-    {
-      db_query("UPDATE {pm_response_rate_flags} SET mark_answered='%d' WHERE thread_id='%d'", $answered, $thread_id);
-    }
-    else
-    {
-      db_query("INSERT into {pm_response_rate_flags} (thread_id, mark_answered) VALUES ('%d', '%d')", $thread_id, $answered);
-    }
+    db_merge('pm_response_rate_flags')
+      ->key(array('thread_id' => $thread_id))
+      ->fields(array('mark_answered' => $answered))
+      ->execute(); 
+
     global $user;
     $thread_account = drupal_clone($user);
     $participants = _privatemsg_load_thread_participants($thread_id, $thread_account);
@@ -614,7 +612,7 @@ function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
 
     // Add them to #data
     $result = db_query($query['query']);
-    while ($flags = db_fetch_array($result)) {
+    while ($flags = $result->fetchAssoc()) {
       $form['#data'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
       $form['#data'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
       $form['#data'][$flags['thread_id']]['flags']['mark_answered'] = $flags['mark_answered'];
@@ -643,27 +641,28 @@ function pm_response_rate_sql_flags(&$fragments, $threads) {
 }
 
 /**
- * Implement hook_privatemsg_sql_list_alter
+ * Implement hook_query_privatemsg_sql_list_alter
  * If we've got permission to see all messages, then see the deleted ones too
  */
-function pm_response_rate_privatemsg_sql_list_alter(&$fragments, $account, $argument) {
-  if ($argument == 'list' && privatemsg_user_access('read all private messages'))
+function pm_response_rate_query_privatemsg_sql_list_alter($query) {
+  if (privatemsg_user_access('read all private messages'))
   {
-    foreach ($fragments['where'] as $index => $whereclause)
+    $conditions = &$query->conditions();
+    foreach ($conditions as $index => $whereclause)
     {
       if (strpos($whereclause, 'pmi.deleted = 0') === 0)
       {
-        unset($fragments['where'][$index]);
+        unset($conditions[$index]);
       }
     }
-    $fragments['select'][] = 'pmi.deleted';
+    $query->fields('pmi', array('deleted'));
   }
 }
 
 function _pm_response_rate_marked_as_responded($thread_id)
 {
-    $count = db_result(db_query(
-      "SELECT COUNT(*) FROM pm_response_rate_flags as f WHERE f.thread_id = '%d' AND f.mark_answered <> 0", array($thread_id)));
+    $count = db_query(
+      "SELECT COUNT(*) FROM pm_response_rate_flags as f WHERE f.thread_id = :tid AND f.mark_answered <> 0", array(':tid' =>$thread_id))->fetchField();
     if ($count > 0)
     {
       return TRUE;

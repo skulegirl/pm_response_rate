@@ -89,13 +89,6 @@ function pm_response_rate_schema() {
 }
 
 /**
- * Implements hook_install().
- */
-function pm_response_rate_install() {
-  drupal_install_schema('pm_response_rate');
-}
-
-/**
  * Implements hook_uninstall().
  */
 function pm_response_rate_uninstall() {
@@ -106,7 +99,6 @@ function pm_response_rate_uninstall() {
   variable_del('pm_response_rate_grace_period');
   variable_del('pm_response_rate_calc_interval');
   variable_del('pm_response_time_algo');
-  drupal_uninstall_schema('pm_response_rate');
 }
 
 /**

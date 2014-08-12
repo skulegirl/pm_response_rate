@@ -1,8 +1,16 @@
 name = Privatemsg Response Rate
 description = Calculates response rate statistics for private messages
 package = Mail
-core = 6.x
+core = 7.x
 dependencies[] = privatemsg
-version = 6.x-1.x-dev
+version = 7.x-1.x-dev
 project = pm_response_rate
 
+files[] = pm_response_rate.module
+files[] = pm_response_rate.admin.inc
+files[] = pm_response_rate.install
+
+; Views handlers
+files[] = includes/pm_response_rate.views.inc
+files[] = includes/pm_response_rate.views_default.inc
+files[] = includes/views_handler_field_response_time_text.inc
