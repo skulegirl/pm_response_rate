@@ -67,19 +67,29 @@ function pm_response_rate_schema() {
       'ignore_flag' => array(
         'description'   => 'Flag indicating this thread should be ignored in calculations',
         'type'          => 'int',
+        'default'       => 0,
         'not null'      => TRUE,
         'unsigned'      => TRUE,
       ),
       'request_ignore' => array(
         'description'   => 'Flag indicating a user has requested that this thread be ignored in calculations',
         'type'          => 'int',
+        'default'       => 0,
         'not null'      => TRUE,
         'unsigned'      => TRUE,
       ),
       'mark_answered' => array(
         'description'   => 'Flag indicating this message should be considered answered',
         'type'          => 'int',
-        'not null'      => TRUE,
+        'default'       => NULL,
+        'not null'      => FALSE,
+        'unsigned'      => TRUE,
+      ),
+      'response_time' => array(
+        'description'   => 'Response time for message flagged as answered',
+        'type'          => 'int',
+        'not null'      => FALSE,
+        'default'       => NULL,
         'unsigned'      => TRUE,
       ), 
     ),
@@ -118,13 +128,22 @@ function pm_response_rate_update_6101() {
       'ignore_flag' => array(
         'description'   => 'Flag indicating this thread should be ignored in calculations',
         'type'          => 'int',
+        'default'       => 0,
         'not null'      => TRUE,
         'unsigned'      => TRUE,
       ),
       'request_ignore' => array(
         'description'   => 'Flag indicating a user has requested that this thread be ignored in calculations',
         'type'          => 'int',
+        'default'       => 0,
         'not null'      => TRUE,
+        'unsigned'      => TRUE,
+      ),
+      'mark_answered' => array(
+        'description'   => 'Flag indicating this message should be considered answered',
+        'type'          => 'int',
+        'default'       => NULL,
+        'not null'      => FALSE,
         'unsigned'      => TRUE,
       ),
     ),
@@ -148,3 +167,47 @@ function pm_response_rate_update_6102() {
     ));
   return $ret;
 }
+
+/** 
+ * Add default values for pm_response_rate_flags columns
+ */
+function pm_response_rate_update_7000() {
+  db_change_field('pm_response_rate_flags', 'mark_answered', 'mark_answered',
+     array(
+        'description'   => 'Flag indicating this message should be considered answered',
+        'type'          => 'int',
+        'default'       => NULL,
+        'not null'      => FALSE,
+        'unsigned'      => TRUE,
+    ));
+  db_change_field('pm_response_rate_flags', 'ignore_flag', 'ignore_flag',
+     array(
+        'description'   => 'Flag indicating this thread should be ignored in calculations',
+        'type'          => 'int',
+        'default'       => 0,
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+    ));
+  db_change_field('pm_response_rate_flags', 'request_ignore', 'request_ignore',
+     array(
+        'description'   => 'Flag indicating a user has requested that this thread be ignored in calculations',
+        'type'          => 'int',
+        'default'       => 0,
+        'not null'      => TRUE,
+        'unsigned'      => TRUE,
+    ));
+}
+
+/** 
+ * Add response_time field to pm_response_rate_flags table 
+  */
+function pm_response_rate_update_7001() {
+  db_add_field('pm_response_rate_flags', 'response_time', array(
+      'description'   => 'Response time for message flagged as answered',
+      'type'          => 'int',
+      'not null'      => FALSE,
+      'default'       => NULL,
+      'unsigned'      => TRUE,
+    ));
+}
+

@@ -59,7 +59,7 @@ function pm_response_rate_menu() {
 function pm_response_rate_views_api()
 {
   return array(
-    'api' => 2,
+    'api' => 3,
     'path' => drupal_get_path('module', 'pm_response_rate') . '/includes',
   );
 }
@@ -70,7 +70,7 @@ function pm_response_rate_views_api()
  */
 
 function _pm_response_rate_update_user_rate($uid) {
-  dd('Calculating response rate for user ' . $uid);
+  //dd('Calculating response rate for user ' . $uid);
   $searchtime = time() - variable_get('pm_response_rate_days_memory', 
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
@@ -97,9 +97,10 @@ function _pm_response_rate_update_user_rate($uid) {
   {
     // then we don't have enough info to calculate a rate, just return.
     // NOTE: DO NOT go in and NULL out any existing rate - we want to leave it as-is 
+    //dd('Minimum messages not met, only have' . $count);
     return;
   }
-  dd('Using ' . $count . ' messages for response rate calculation');
+  //dd('Using ' . $count . ' messages for response rate calculation');
   $total_incoming_msgs = 0;
   $total_responses_to_incoming = 0;
   $first_revisit_time = 0;
@@ -107,15 +108,21 @@ function _pm_response_rate_update_user_rate($uid) {
   // Get all messages that were the first in a thread and sent to this user that are in the memory window
 
   $grace_period = variable_get('pm_response_rate_grace_period', PM_RESPONSE_RATE_GRACE_PERIOD_DEFAULT) * PM_RESPONSE_RATE_SECONDS_IN_DAY;
-  
+ 
+  $response_times = array(); 
   while ($message = $result->fetchAssoc())
   {
     $total_incoming_msgs++;
     // note that mid being passed in here is equal to thread_id for the thread, since its the first
     // message in the thread.
-    if (_pm_response_rate_marked_as_responded($message['mid']))
+    if ($flags = _pm_response_rate_is_marked_as_responded($message['mid']))
     {
-      dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been responded to');
+      dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been marked as responded to');
+      if (isset($flags->response_time))
+      {
+        dd('response time recorded was' . $flags->response_time);
+        $response_times[] = $flags->response_time;
+      }
       $total_responses_to_incoming++;
     }
     else
@@ -125,10 +132,10 @@ function _pm_response_rate_update_user_rate($uid) {
       if ($first_response_message)
       {
         $total_responses_to_incoming++;
-        $response_times[] = $first_response_message['timestamp'] - $message['timestamp'];
-        // Eventually put this in the flag table, along with the calculated
-        // response time, so that we don't have to do the calculation every time
-        //  pm_response_rate_flag_answered($message['mid'], 1);
+        $response_time = $first_response_message['timestamp'] - $message['timestamp'];
+        dd('marking message ' . $message['mid'] . ' as responded with time ' . $response_time);
+        _pm_response_rate_mark_as_responsed($message['mid'], $response_time);
+        $response_times[] = $response_time;
       }
       else // no response yet
       {
@@ -146,7 +153,7 @@ function _pm_response_rate_update_user_rate($uid) {
         }
         else
         {
-	  dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
+	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to');
         }
       }
     }
@@ -378,7 +385,7 @@ function pm_response_rate_form_alter(&$form, $form_state, $form_id)
 }
 
 function _pm_response_rate_recalc_user_submit($form, &$form_state) {
-  _pm_response_rate_update_user_rate($form['#uid']);
+  _pm_response_rate_update_user_rate($form['#user']->uid);
   drupal_set_message(t('PM Response rate has been regenerated'));
 }
 
@@ -422,7 +429,6 @@ function pm_response_rate_privatemsg_thread_operations() {
   }
   return $operations;
 }
-
 /* 
  * Flag a thread to be ignored in calculation of response rates
  *
@@ -440,7 +446,7 @@ function pm_response_rate_flag_ignore($threads, $ignore, $account = NULL) {
   }
   if (empty($account)) {
     global $user;
-    $account = drupal_clone($user);
+    $account = clone $user;
   }
 
   foreach ($threads as $thread_id) {
@@ -450,7 +456,7 @@ function pm_response_rate_flag_ignore($threads, $ignore, $account = NULL) {
       ->execute(); 
 
     global $user;
-    $thread_account = drupal_clone($user);
+    $thread_account = clone $user;
     $participants = _privatemsg_load_thread_participants($thread_id, $thread_account);
     foreach ($participants as $participant) {
       _pm_response_rate_update_user_rate($participant->recipient);
@@ -482,7 +488,7 @@ function pm_response_rate_flag_answered($threads, $answered, $account = NULL) {
   }
   if (empty($account)) {
     global $user;
-    $account = drupal_clone($user);
+    $account = clone $user;
   }
 
   foreach ($threads as $thread_id) {
@@ -492,7 +498,7 @@ function pm_response_rate_flag_answered($threads, $answered, $account = NULL) {
       ->execute(); 
 
     global $user;
-    $thread_account = drupal_clone($user);
+    $thread_account = clone $user;
     $participants = _privatemsg_load_thread_participants($thread_id, $thread_account);
     foreach ($participants as $participant) {
       _pm_response_rate_update_user_rate($participant->recipient);
@@ -544,11 +550,12 @@ function pm_response_rate_privatemsg_header_info() {
  *
  * @see theme_privatemsg_list_field()
  */
-function phptemplate_privatemsg_list_field__ignored($thread) {
-    return array(
-      'data' => (isset($thread['flags']) && $thread['flags']['incoming_message']) ? ($thread['flags']['ignore_flag'] ? 'Yes' : 'No') : 'N/A',
-      'class' => 'pm-response-rate-ignore-flag',
-    );
+function theme_privatemsg_list_field__ignored($arguments) {
+  $thread = $arguments['thread'];
+  return array(
+    'data' => (isset($thread['flags']) && $thread['flags']['incoming_message']) ? ($thread['flags']['ignore_flag'] ? 'Yes' : 'No') : 'N/A',
+    'class' => 'pm-response-rate-ignore-flag',
+  );
 }
 
 /**
@@ -556,21 +563,22 @@ function phptemplate_privatemsg_list_field__ignored($thread) {
  *
  * @see theme_privatemsg_list_field()
  */
-function phptemplate_privatemsg_list_field__answered($thread) {
-    if (isset($thread['flags']) &&
-        $thread['flags']['incoming_message'] &&
-        !$thread['flags']['ignore_flag'])
-    {
-      $data = $thread['flags']['mark_answered'] ? 'Yes' : 'No';
-    }
-    else
-    {
-      $data = 'N/A';
-    }
-    return array(
-      'data' => $data,
-      'class' => 'pm-response-rate-answered-flag',
-    );
+function theme_privatemsg_list_field__answered($arguments) {
+  $thread = $arguments['thread'];
+  if (isset($thread['flags']) &&
+      $thread['flags']['incoming_message'] &&
+      !$thread['flags']['ignore_flag'])
+  {
+    $data = isset($thread['flags']['mark_answered']) ? ($thread['flags']['mark_answered'] ? 'Yes' : 'No') : '?';
+  }
+  else
+  {
+    $data = 'N/A';
+  }
+  return array(
+    'data' => $data,
+    'class' => 'pm-response-rate-answered-flag',
+  );
 }
 
 /**
@@ -578,11 +586,12 @@ function phptemplate_privatemsg_list_field__answered($thread) {
  *
  * @see theme_privatemsg_list_field()
  */
-function phptemplate_privatemsg_list_field__deleted($thread) {
-    return array(
-      'data' => $thread['deleted'] ? format_date($thread['deleted'], 'small') : 'No',
-      'class' => 'pm-response-rate-deleted',
-    );
+function _privatemsg_list_field__deleted($arguments) {
+  $thread = $arguments['thread'];
+  return array(
+    'data' => $thread['deleted'] ? format_date($thread['deleted'], 'small') : 'No',
+    'class' => 'pm-response-rate-deleted',
+  );
 }
 /**
  * Add the ignored flag values to the message listing
@@ -591,31 +600,27 @@ function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
   if (privatemsg_user_access('alter privatemsg response rate data'))
   {
     // Load thread ids of current list
-    $threads = array_keys($form['#data']);
+    $threads = array_keys($form['updated']['list']['#options']);
 
     foreach ($threads as $thread)
     {
       // Load the first message and see who sent it
       $message = privatemsg_message_load($thread, $form['account']['#value']);
-      if ($message['author']->uid == $form['account']['#value']->uid)
-      {
-        $form['#data'][$thread]['flags']['incoming_message'] = 0;
-      }
-      else
-      {
-        $form['#data'][$thread]['flags']['incoming_message'] = 1;
-      }
+      $form_flags = &$form['updated']['list']['#options'][$thread]['flags'];
+      $form_flags['incoming_message'] = ($message->author->uid == $form['account']['#value']->uid) ? 0 : 1;
+      $form_flags['mark_answered'] = NULL;
+      $form_flags['ignore_flag'] = $form_flags['request_ignore'] = 0;
     }
 
     // Fetch the pm_response_rate flags for the threads
     $query = _privatemsg_assemble_query(array('flags', 'pm_response_rate'), $threads);
 
     // Add them to #data
-    $result = db_query($query['query']);
+    $result = $query->execute();
     while ($flags = $result->fetchAssoc()) {
-      $form['#data'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
-      $form['#data'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
-      $form['#data'][$flags['thread_id']]['flags']['mark_answered'] = $flags['mark_answered'];
+      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
+      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
+      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['mark_answered'] = $flags['mark_answered'];
     }
   }
 }
@@ -628,16 +633,11 @@ function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
  * @param $threads
  *   Array of thread ids, defaults to all threads of a user.
  */
-function pm_response_rate_sql_flags(&$fragments, $threads) {
-  $fragments['primary_table'] = '{pm_response_rate_flags} t';
-  $fragments['select'][] = 't.ignore_flag';
-  $fragments['select'][] = 't.request_ignore';
-  $fragments['select'][] = 't.mark_answered';
-  $fragments['select'][] = 't.thread_id';
-
-  // If the flag list needs to be for specific threads.
-  $fragments['where'][] = 't.thread_id IN (' . db_placeholders($threads) . ')';
-  $fragments['query_args']['where'] += $threads;
+function pm_response_rate_sql_flags($threads) {
+  $query = db_select('pm_response_rate_flags', 't');
+  $query->fields('t', array('ignore_flag', 'request_ignore', 'mark_answered', 'thread_id'))
+        ->condition('t.thread_id', $threads, 'IN');
+  return $query;
 }
 
 /**
@@ -659,13 +659,19 @@ function pm_response_rate_query_privatemsg_sql_list_alter($query) {
   }
 }
 
-function _pm_response_rate_marked_as_responded($thread_id)
+function _pm_response_rate_is_marked_as_responded($thread_id)
 {
-    $count = db_query(
-      "SELECT COUNT(*) FROM pm_response_rate_flags as f WHERE f.thread_id = :tid AND f.mark_answered <> 0", array(':tid' =>$thread_id))->fetchField();
-    if ($count > 0)
-    {
-      return TRUE;
-    }
-    return FALSE;
+  return db_query("SELECT * FROM pm_response_rate_flags as f WHERE f.thread_id = :tid AND f.mark_answered <> 0", 
+    array(':tid' =>$thread_id))->fetchObject();
+}
+
+function _pm_response_rate_mark_as_responsed($thread_id, $response_time)
+{
+  db_merge('pm_response_rate_flags')
+    ->key(array('thread_id' => $thread_id))
+    ->fields(
+      array('mark_answered' => 1, 
+            'response_time' => $response_time,
+     ))
+    ->execute(); 
 }
