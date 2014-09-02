@@ -153,12 +153,14 @@ function _pm_response_rate_update_user_rate($uid) {
   }
   if ($total_incoming_msgs  < $minimum_messages)
   {
+    //dd('Total incoming messages of ' . $total_incoming_msgs . ' is below minimum of ' . $minimum_messages);
     if ($first_revisit_time != 0)
     {
       // Then enough of our messages were in the grace period to not make calculation worthwhile
       // Don't do the calculation, but put an entry in the DB with the revisit time set and a NULL response
       // rate
       $response_time = PM_RESPONSE_RATE_NOT_DEFINED;
+      //dd('Leaving response rate as not defined as too many messages are in grace period');
       
       if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
       {
@@ -174,6 +176,7 @@ function _pm_response_rate_update_user_rate($uid) {
 
   $response_rate = round(($total_responses_to_incoming*100.0)/$total_incoming_msgs);
   $response_time = _pm_response_rate_calc_response_time($response_times);
+  //dd('response rate calculated as ' . $response_rate);
  
   if (db_result(db_query("SELECT COUNT(*) FROM {pm_response_rate} WHERE uid = '%d'", $uid)))
   {
