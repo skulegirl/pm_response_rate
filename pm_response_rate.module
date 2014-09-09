@@ -70,7 +70,15 @@ function pm_response_rate_views_api()
  */
 
 function _pm_response_rate_update_user_rate($uid) {
+
+  $flag=flag_get_flag('boondocking_available');
+  if(!$flag->is_flagged($uid))
+  {
+    //dd('Not calculating response rate for user ' . $uid . '- not flagges as BDA');
+    return;
+  }
   //dd('Calculating response rate for user ' . $uid);
+
   $searchtime = time() - variable_get('pm_response_rate_days_memory', 
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
@@ -117,10 +125,10 @@ function _pm_response_rate_update_user_rate($uid) {
     // message in the thread.
     if ($flags = _pm_response_rate_is_marked_as_responded($message['mid']))
     {
-      dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been marked as responded to');
+      //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has been marked as responded to');
       if (isset($flags->response_time))
       {
-        dd('response time recorded was' . $flags->response_time);
+        //dd('response time recorded was' . $flags->response_time);
         $response_times[] = $flags->response_time;
       }
       $total_responses_to_incoming++;
@@ -133,7 +141,7 @@ function _pm_response_rate_update_user_rate($uid) {
       {
         $total_responses_to_incoming++;
         $response_time = $first_response_message['timestamp'] - $message['timestamp'];
-        dd('marking message ' . $message['mid'] . ' as responded with time ' . $response_time);
+        //dd('marking message ' . $message['mid'] . ' as responded with time ' . $response_time);
         _pm_response_rate_mark_as_responsed($message['mid'], $response_time);
         $response_times[] = $response_time;
       }
@@ -142,7 +150,7 @@ function _pm_response_rate_update_user_rate($uid) {
         $gracetime = time() - $grace_period;
         if ($message['timestamp'] > $gracetime)
         {
-      	  dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
+      	  //dd('message ' . $message['mid'] . ' from ' . $message['author'] . ' has not been responded to but is in the grace period');
           // then don't count this one in the rate
           $total_incoming_msgs--;
           $revisit_time = $message['timestamp'] + $grace_period;
@@ -266,23 +274,15 @@ function _pm_response_rate_calc_response_time($response_times)
  */
 function pm_response_rate_privatemsg_message_insert($message)
 {
-
-  $roles_to_update = variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID));
-  if ($message['thread_id'] != $message['mid']) // not the first message in thread
+  if ($message->thread_id != $message->mid) // not the first message in thread
   {
-    if (_pm_user_has_role($message['author'], $roles_to_update))
-    {
-      _pm_response_rate_update_user_rate($message['author']->uid);
-    }
+    _pm_response_rate_update_user_rate($message->author->uid);
   }
   else // this is the first message in the thread
   {
-    foreach ($message['recipients'] as $recipient)
+    foreach ($message->recipients as $recipient)
     {
-      if (_pm_user_has_role($recipient, $roles_to_update))
-      {
-        _pm_response_rate_update_user_rate($recipient->uid);
-      }
+      _pm_response_rate_update_user_rate($recipient->uid);
     }
   }
 }
@@ -336,13 +336,8 @@ function pm_response_rate_update_flagged_users($revisit_before_time)
 function pm_response_rate_regenerate_data() 
 {
   watchdog('pm_response_rate', 'Regenerating all response rate data');
-  $roles = array_filter(variable_get('pm_response_rate_roles', array(DRUPAL_AUTHENTICATED_RID)));
   $query = db_select('users', 'u')
-   ->distinct();
-  $query->join('users_roles', 'ur', 'u.uid = ur.uid');
-  $query
-   ->fields('u',array('uid'))
-   ->condition('ur.rid', $roles, 'IN');
+   ->fields('u',array('uid'));
 
   $result = $query->execute();
 
@@ -352,20 +347,6 @@ function pm_response_rate_regenerate_data()
   }
 
   watchdog('pm_response_rate', 'Done regenerating response rate data');
-}
-
-/* 
- * Helper function - copy of user_has_role from 
- * http://drupalcontrib.org/api/drupal/contributions!helpers!helpers.module/function/user_has_role/6
- */
-function _pm_user_has_role($user, $roles) 
-{
-  foreach ($roles as $rid) {
-    if (in_array($rid, array_keys($user->roles))) {
-      return TRUE;
-    }
-  }
-  return FALSE;
 }
 
 /* 
