@@ -583,25 +583,28 @@ function pm_response_rate_form_privatemsg_list_alter(&$form, $form_state) {
     // Load thread ids of current list
     $threads = array_keys($form['updated']['list']['#options']);
 
-    foreach ($threads as $thread)
+    if(!empty($threads))
     {
-      // Load the first message and see who sent it
-      $message = privatemsg_message_load($thread, $form['account']['#value']);
-      $form_flags = &$form['updated']['list']['#options'][$thread]['flags'];
-      $form_flags['incoming_message'] = ($message->author->uid == $form['account']['#value']->uid) ? 0 : 1;
-      $form_flags['mark_answered'] = NULL;
-      $form_flags['ignore_flag'] = $form_flags['request_ignore'] = 0;
-    }
+      foreach ($threads as $thread)
+      {
+        // Load the first message and see who sent it
+        $message = privatemsg_message_load($thread, $form['account']['#value']);
+        $form_flags = &$form['updated']['list']['#options'][$thread]['flags'];
+        $form_flags['incoming_message'] = ($message->author->uid == $form['account']['#value']->uid) ? 0 : 1;
+        $form_flags['mark_answered'] = NULL;
+        $form_flags['ignore_flag'] = $form_flags['request_ignore'] = 0;
+      }
 
-    // Fetch the pm_response_rate flags for the threads
-    $query = _privatemsg_assemble_query(array('flags', 'pm_response_rate'), $threads);
+      // Fetch the pm_response_rate flags for the threads
+      $query = _privatemsg_assemble_query(array('flags', 'pm_response_rate'), $threads);
 
-    // Add them to #data
-    $result = $query->execute();
-    while ($flags = $result->fetchAssoc()) {
-      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
-      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
-      $form['updated']['list']['#options'][$flags['thread_id']]['flags']['mark_answered'] = $flags['mark_answered'];
+      // Add them to #data
+      $result = $query->execute();
+      while ($flags = $result->fetchAssoc()) {
+        $form['updated']['list']['#options'][$flags['thread_id']]['flags']['ignore_flag'] = $flags['ignore_flag'];
+        $form['updated']['list']['#options'][$flags['thread_id']]['flags']['request_ignore'] = $flags['request_ignore'];
+        $form['updated']['list']['#options'][$flags['thread_id']]['flags']['mark_answered'] = $flags['mark_answered'];
+      }
     }
   }
 }
