@@ -567,7 +567,7 @@ function theme_privatemsg_list_field__answered($arguments) {
  *
  * @see theme_privatemsg_list_field()
  */
-function _privatemsg_list_field__deleted($arguments) {
+function theme_privatemsg_list_field__deleted($arguments) {
   $thread = $arguments['thread'];
   return array(
     'data' => $thread['deleted'] ? format_date($thread['deleted'], 'small') : 'No',
