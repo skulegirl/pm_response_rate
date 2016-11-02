@@ -32,8 +32,17 @@ define('PM_RESPONSE_RATE_MORE_THAN_2_WEEKS', 7);
 /**
  * Implements hook_perm().
  */
-function pm_response_rate_perm() {
-  return array('view privatemsg response rate data', 'alter privatemsg response rate data');
+function pm_response_rate_permission() {
+  return array(
+    'view privatemsg response rate data' => array(
+      'title' => t('View Private Message response rate data'),
+      'description' => t('See response rate details of members'),
+    ), 
+    'alter privatemsg response rate data' => array(
+      'title' => t('Alter Private Message response rate data'),
+      'description' => t('Ability to mark messages as ignore/answered in response rate data used for calculation'),
+    ),
+  );
 }
 
 /**
