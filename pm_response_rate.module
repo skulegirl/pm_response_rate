@@ -92,7 +92,7 @@ function _pm_response_rate_update_user_rate($uid) {
     PM_RESPONSE_RATE_DAYS_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
 
   $result = db_query(
-      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0) and i.type <> 'silent_block'", 
+      "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0) and i.type <> 'silentblock'", 
     array('uid' => $uid, 'searchtime' => $searchtime));
   
   $count = $result->rowCount();
@@ -103,7 +103,7 @@ function _pm_response_rate_update_user_rate($uid) {
     $searchtime = time() - variable_get('pm_response_rate_days_extended_memory', 
       PM_RESPONSE_RATE_DAYS_EXTENDED_MEMORY_DEFAULT)*PM_RESPONSE_RATE_SECONDS_IN_DAY; 
     $result = db_query(
-        "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0) and i.type <> 'silent_block'", 
+        "SELECT m.mid, m.author, m.timestamp FROM pm_message AS m JOIN pm_index AS i ON m.mid = i.thread_id AND m.mid = i.mid LEFT JOIN pm_response_rate_flags AS pmf USING (thread_id) WHERE i.recipient = :uid AND m.timestamp >= :searchtime AND m.author <> :uid AND (pmf.ignore_flag IS NULL OR pmf.ignore_flag = 0) and i.type <> 'silentblock'", 
       array('uid' => $uid, 'searchtime' => $searchtime));
     $count = $result->rowCount();
   }
